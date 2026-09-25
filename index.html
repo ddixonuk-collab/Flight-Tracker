@@ -98,6 +98,10 @@ body{margin:0;height:100%;background:var(--page-bg);color:var(--page-fg);
   border:1px solid var(--btn-line);border-radius:9px;padding:9px 14px;cursor:pointer}
 #controls button:focus-visible{outline:3px solid #2f7de1;outline-offset:2px}
 #note{font:400 13px "Barlow",system-ui,sans-serif;opacity:.7;text-align:center;padding:0 16px;max-width:640px}
+/* kiosk mode: black surround, square corners, nothing but the dashboard */
+html.kiosk body{background:var(--bg);gap:0;overflow:hidden}
+html.kiosk #stage{border-radius:0;box-shadow:none}
+html.kiosk #stage.alert{box-shadow:0 0 0 5px var(--alert) inset}
 </style>
 </head>
 <body>
@@ -147,8 +151,13 @@ body{margin:0;height:100%;background:var(--page-bg);color:var(--page-fg);
 "use strict";
 var $ = function(id){return document.getElementById(id)};
 var REF = {lat:51.332, lon:-0.834};
-var KIOSK = /[?&]kiosk/.test(location.search);
-if (KIOSK){ $('controls').style.display='none'; $('note').style.display='none'; }
+// Kiosk mode = full-screen display with no demo buttons.
+// Switches on automatically on Android (i.e. the Echo), or with ?kiosk in the URL.
+// Add ?demo to the URL to force the buttons back on anywhere.
+var KIOSK = /[?&]kiosk/.test(location.search) ||
+  (/Android/i.test(navigator.userAgent) && !/[?&]demo/.test(location.search));
+if (KIOSK){ document.documentElement.classList.add('kiosk');
+  $('controls').style.display='none'; $('note').style.display='none'; }
 
 var MI = 1.609344, MULT = 6, CX = 230, CY = 230, R = 200, RANGE_KM = 50, K = R / RANGE_KM;
 var PLANE = "M0,-12 L2.2,-4.5 L11.5,0.8 L11.5,3.6 L2.4,1.6 L1.6,8.2 L5.2,10.4 L5.2,12 L0,10.8 L-5.2,12 L-5.2,10.4 L-1.6,8.2 L-2.4,1.6 L-11.5,3.6 L-11.5,0.8 L-2.2,-4.5 Z";
@@ -379,7 +388,8 @@ $('btnReset').onclick=function(){ resetFleet(); };
 /* ---- scale the 960x480 screen to fit whatever it's shown on ---- */
 function fit(){
   var cH = KIOSK ? 0 : $('controls').offsetHeight + $('note').offsetHeight + 40;
-  var s = Math.min((window.innerWidth-20)/960, (window.innerHeight-cH-20)/480);
+  var m = KIOSK ? 0 : 20;  // no margin in kiosk mode - fill the screen edge to edge
+  var s = Math.min((window.innerWidth-m)/960, (window.innerHeight-cH-m)/480);
   if (s<=0 || !isFinite(s)) s=1;
   $('stage').style.transform='scale('+s+')';
   $('holder').style.width=(960*s)+'px'; $('holder').style.height=(480*s)+'px';
