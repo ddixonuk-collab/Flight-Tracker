@@ -134,14 +134,20 @@ body{margin:0;height:100%;background:var(--page-bg);color:var(--page-fg);
  </div>
 </div>
 
-
+<div id="controls">
+  <button id="btn7700">Trigger 7700 emergency</button>
+  <button id="btn7500">Trigger 7500 hijack</button>
+  <button id="btnClear">Clear alerts</button>
+  <button id="btnReset">Reset demo</button>
+</div>
+<div id="note">Preview with simulated aircraft, sped up so you can see movement. Live data comes in the next step.</div>
 
 <script>
 (function(){
 "use strict";
 var $ = function(id){return document.getElementById(id)};
 var REF = {lat:51.332, lon:-0.834};
-var KIOSK = true;
+var KIOSK = /[?&]kiosk/.test(location.search);
 if (KIOSK){ $('controls').style.display='none'; $('note').style.display='none'; }
 
 var MI = 1.609344, MULT = 6, CX = 230, CY = 230, R = 200, RANGE_KM = 50, K = R / RANGE_KM;
