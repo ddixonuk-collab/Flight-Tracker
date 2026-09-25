@@ -11,7 +11,7 @@ if (/[?&]kiosk/.test(location.search) ||
   document.querySelector('meta[name=viewport]').setAttribute('content','width=960, user-scalable=no');
 }
 </script>
-<title>Flight Tracker - Echo Show 5 preview</title>
+<title>Flight Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500&display=swap">
@@ -166,8 +166,11 @@ var KIOSK = /[?&]kiosk/.test(location.search) ||
   (/Android/i.test(navigator.userAgent) && !/[?&]demo/.test(location.search));
 if (KIOSK){ document.documentElement.classList.add('kiosk');
   $('controls').style.display='none'; $('note').style.display='none'; }
+// LIVE = real aircraft from the internet. Add ?demo to the URL for the old simulated fleet + test buttons.
+var LIVE = !/[?&]demo/.test(location.search);
+if (LIVE){ $('controls').style.display='none'; $('note').style.display='none'; }
 
-var MI = 1.609344, MULT = 6, CX = 230, CY = 230, R = 200, RANGE_KM = 50, K = R / RANGE_KM;
+var MI = 1.609344, MULT = LIVE ? 1 : 6, CX = 230, CY = 230, R = 200, RANGE_KM = 50, K = R / RANGE_KM;
 var PLANE = "M0,-12 L2.2,-4.5 L11.5,0.8 L11.5,3.6 L2.4,1.6 L1.6,8.2 L5.2,10.4 L5.2,12 L0,10.8 L-5.2,12 L-5.2,10.4 L-1.6,8.2 L-2.4,1.6 L-11.5,3.6 L-11.5,0.8 L-2.2,-4.5 Z";
 $('lanePath').setAttribute('d', PLANE);
 
@@ -219,7 +222,7 @@ var SPOT_KM = 25;
 var MIL_PREFIX = /^(RRR|RCH|CNV|RFR|FAF|GAF|IAM|NATO)/;
 function interestOf(a){
   var t=(a.type||'').toLowerCase(), c=(a.callsign||'').toUpperCase();
-  if (MIL_PREFIX.test(c) || /hawk|typhoon|voyager|a400m|c-17|hercules|atlas|tucano|chinook|apache|puma|merlin|sentinel|poseidon|rivet/.test(t)) return 'Military';
+  if (a.mil || MIL_PREFIX.test(c) || /hawk|typhoon|voyager|a400m|c-17|hercules|atlas|tucano|chinook|apache|puma|merlin|sentinel|poseidon|rivet/.test(t)) return 'Military';
   if (/a380/.test(t)) return 'Superjumbo';
   if (/747/.test(t)) return 'Jumbo jet';
   if (/an-124|an-225|antonov|beluga|dreamlifter/.test(t)) return 'Giant freighter';
@@ -238,8 +241,187 @@ function approach(a){
   return {secs:ts/MULT, km:Math.hypot(px+vx*ts, py+vy*ts)};
 }
 
-/* ---- data source: swap this for live OpenSky data later ---- */
-function getAircraft(){ return fleet; }
+/* ================= LIVE DATA =================
+   Aircraft positions: adsb.lol (free, no key, works from a web page).
+   Backup if adsb.lol is down: airplanes.live (same data format).
+   Routes: adsbdb (same source as the LED matrix), backup adsb.lol routeset.
+   Nothing secret lives in this file - it's safe on a public GitHub page. */
+var POLL_SECS = 10;
+var SOURCES = [
+  {name:'adsb.lol',       url:'https://api.adsb.lol/v2/lat/'+REF.lat+'/lon/'+REF.lon+'/dist/30'},
+  {name:'airplanes.live', url:'https://api.airplanes.live/v2/point/'+REF.lat+'/'+REF.lon+'/30'}
+];
+var live = [], lastOk = 0, srcIdx = 0, srcName = '', pollFails = 0;
+
+// ICAO callsign prefix -> [airline, IATA code for the flight number] (same list as code.py)
+var AIRLINES = {
+  BAW:['British Airways','BA'], CFE:['BA CityFlyer','BA'], SHT:['British Airways','BA'],
+  EZY:['easyJet','U2'], EJU:['easyJet Europe','EC'], EZS:['easyJet Switzerland','DS'],
+  RYR:['Ryanair','FR'], RUK:['Ryanair UK','RK'], WZZ:['Wizz Air','W6'], WUK:['Wizz Air UK','W9'],
+  EXS:['Jet2','LS'], TOM:['TUI Airways','BY'], VIR:['Virgin Atlantic','VS'], KLM:['KLM','KL'],
+  DLH:['Lufthansa','LH'], AFR:['Air France','AF'], UAE:['Emirates','EK'], QTR:['Qatar Airways','QR'],
+  SIA:['Singapore Airlines','SQ'], THY:['Turkish Airlines','TK'], IBE:['Iberia','IB'], VLG:['Vueling','VY'],
+  NAX:['Norwegian','DY'], NSZ:['Norwegian','D8'], SAS:['SAS','SK'], SWR:['Swiss','LX'], AUA:['Austrian','OS'],
+  BEL:['Brussels Airlines','SN'], TAP:['TAP Air Portugal','TP'], FIN:['Finnair','AY'], ICE:['Icelandair','FI'],
+  EIN:['Aer Lingus','EI'], EUK:['Aer Lingus UK','EG'], LOG:['Loganair','LM'], CFG:['Condor','DE'],
+  EWG:['Eurowings','EW'], ACA:['Air Canada','AC'], AAL:['American Airlines','AA'], UAL:['United Airlines','UA'],
+  DAL:['Delta Air Lines','DL'], JBU:['JetBlue','B6'], ETD:['Etihad Airways','EY'], CPA:['Cathay Pacific','CX'],
+  QFA:['Qantas','QF'], ANA:['All Nippon Airways','NH'], JAL:['Japan Airlines','JL'], AIC:['Air India','AI'],
+  SVA:['Saudia','SV'], MSR:['EgyptAir','MS'], RJA:['Royal Jordanian','RJ'], ELY:['El Al','LY'],
+  GFA:['Gulf Air','GF'], OMA:['Oman Air','WY'], RAM:['Royal Air Maroc','AT'], AEE:['Aegean','A3'],
+  LOT:['LOT Polish','LO'], ITY:['ITA Airways','AZ'], KQA:['Kenya Airways','KQ'], ETH:['Ethiopian','ET'],
+  PIA:['Pakistan Intl','PK'], BTI:['airBaltic','BT'], SXS:['SunExpress','XQ'], AUR:['Aurigny','GR'],
+  FDX:['FedEx','FX'], UPS:['UPS Airlines','5X'], DHK:['DHL Aviation','D0'], BCS:['DHL','QY'],
+  RRR:['Royal Air Force',null], ASCOT:['Royal Air Force',null], NJE:['NetJets Europe',null],
+  VJT:['VistaJet',null], TFY:['Titan Airways','ZT']
+};
+function airlineOf(cs){
+  var e = cs.length>3 && AIRLINES[cs.slice(0,3)];
+  return e ? {name:e[0], flightNo: e[1] ? e[1]+cs.slice(3) : null} : null;
+}
+
+// ICAO type code -> friendly name. Anything not listed uses the database description.
+var TYPES = {
+  A19N:'Airbus A319neo', A20N:'Airbus A320neo', A21N:'Airbus A321neo', A318:'Airbus A318', A319:'Airbus A319',
+  A320:'Airbus A320', A321:'Airbus A321', A332:'Airbus A330-200', A333:'Airbus A330-300', A338:'Airbus A330-800neo',
+  A339:'Airbus A330-900neo', A343:'Airbus A340-300', A346:'Airbus A340-600', A359:'Airbus A350-900',
+  A35K:'Airbus A350-1000', A388:'Airbus A380-800', BCS1:'Airbus A220-100', BCS3:'Airbus A220-300',
+  B737:'Boeing 737-700', B738:'Boeing 737-800', B38M:'Boeing 737 MAX 8', B39M:'Boeing 737 MAX 9',
+  B744:'Boeing 747-400', B748:'Boeing 747-8', B752:'Boeing 757-200', B763:'Boeing 767-300', B764:'Boeing 767-400',
+  B772:'Boeing 777-200', B77L:'Boeing 777-200LR', B77W:'Boeing 777-300ER', B779:'Boeing 777-9', B788:'Boeing 787-8',
+  B789:'Boeing 787-9', B78X:'Boeing 787-10', E170:'Embraer E170', E175:'Embraer E175', E190:'Embraer E190',
+  E195:'Embraer E195', E290:'Embraer E190-E2', E295:'Embraer E195-E2', AT72:'ATR 72', AT76:'ATR 72-600',
+  DH8D:'Dash 8 Q400', CRJ9:'Bombardier CRJ900', A332K:'Airbus Voyager', A400:'Airbus A400M Atlas',
+  C17:'Boeing C-17 Globemaster', C30J:'Lockheed C-130J Hercules', P8:'Boeing P-8 Poseidon', EUFI:'Eurofighter Typhoon',
+  C172:'Cessna 172', C152:'Cessna 152', PA28:'Piper PA-28 Cherokee', SR22:'Cirrus SR22', DA40:'Diamond DA40',
+  EC35:'Airbus EC135 helicopter', EC45:'Airbus EC145 helicopter', H145:'Airbus H145 helicopter',
+  A139:'AW139 helicopter', A169:'AW169 helicopter', A109:'AW109 helicopter', R44:'Robinson R44 helicopter',
+  AS50:'Airbus AS350 helicopter', CH47:'Boeing Chinook helicopter', GLF6:'Gulfstream G650', GLEX:'Bombardier Global Express',
+  C68A:'Cessna Citation Latitude', PC12:'Pilatus PC-12'
+};
+function typeName(code, desc){
+  if (code && TYPES[code]) return TYPES[code];
+  if (desc) return desc.toLowerCase().split(' ').map(function(w){
+    return /\d/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase()+w.slice(1); }).join(' ');
+  return code || null;
+}
+
+// Turn one aircraft from the API into the shape the display uses.
+function parseAc(x, now){
+  if (x.lat==null || x.lon==null || x.alt_baro==='ground') return null;
+  var altFt = typeof x.alt_baro==='number' ? x.alt_baro : (typeof x.alt_geom==='number' ? x.alt_geom : null);
+  if (altFt==null) return null;
+  if (groundKm(x.lat,x.lon) > RANGE_KM) return null;          // outside the radar
+  var cs  = (x.flight||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  var reg = (x.r||'').toUpperCase().replace(/[^A-Z0-9-]/g,'');
+  var al  = cs ? airlineOf(cs) : null;
+  var rate = typeof x.baro_rate==='number' ? x.baro_rate : (typeof x.geom_rate==='number' ? x.geom_rate : 0);
+  var track = x.track!=null ? x.track : (x.true_heading!=null ? x.true_heading : (x.mag_heading||0));
+  var a = {
+    icao: x.hex, callsign: cs || reg || (x.hex||'').toUpperCase(), hasCs: !!cs,
+    airline: al ? al.name : null, flightNo: al ? al.flightNo : null,
+    type: typeName(x.t, x.desc), reg: reg || null,
+    v: (x.gs||0)*0.514444, vr: rate*0.00508, track: track,
+    squawk: x.squawk||'', category: x.category==='A7' ? 8 : null, mil: !!(x.dbFlags & 1),
+    lat0: x.lat, lon0: x.lon, alt0: altFt*0.3048,
+    t0: now - (x.seen_pos||0)*1000   // when this position was actually heard
+  };
+  a.lat=a.lat0; a.lon=a.lon0; a.alt=a.alt0;
+  return a;
+}
+
+function timedFetch(url, opts, ms){
+  var c = new AbortController(), t = setTimeout(function(){ c.abort(); }, ms);
+  opts = opts || {}; opts.signal = c.signal;
+  return fetch(url, opts).then(function(r){ clearTimeout(t); return r; },
+                               function(e){ clearTimeout(t); throw e; });
+}
+
+function tryPositions(i, tries){
+  var src = SOURCES[i];
+  return timedFetch(src.url, {cache:'no-store'}, 8000)
+    .then(function(r){ if (!r.ok) throw new Error(src.name+' HTTP '+r.status); return r.json(); })
+    .then(function(j){ srcIdx = i; srcName = src.name; return j; })
+    .catch(function(e){
+      console.warn('[LIVE] '+e);
+      if (tries+1 >= SOURCES.length) throw e;
+      return tryPositions((i+1) % SOURCES.length, tries+1);
+    });
+}
+
+function poll(){
+  tryPositions(srcIdx, 0).then(function(j){
+    var now = Date.now(), seen = {};
+    live = (j.ac || j.aircraft || []).map(function(x){ return parseAc(x, now); }).filter(Boolean);
+    live.forEach(function(a){
+      seen[a.icao] = 1;
+      var tr = trails[a.icao] || (trails[a.icao] = []);
+      tr.push(proj(a.lat0, a.lon0)); if (tr.length > 14) tr.shift();
+    });
+    Object.keys(trails).forEach(function(k){ if (!seen[k]) delete trails[k]; });
+    lastOk = now; pollFails = 0;
+  }).catch(function(){ pollFails++; })
+    .then(function(){ setTimeout(poll, (pollFails ? Math.min(60, POLL_SECS*(pollFails+1)) : POLL_SECS)*1000); });
+}
+
+// Between updates, glide each aircraft along its heading so the radar moves smoothly.
+function reckon(){
+  var now = Date.now();
+  live.forEach(function(a){
+    var dt = Math.min(30, Math.max(0, (now - a.t0)/1000)), t = a.track*Math.PI/180, m = a.v*dt;
+    a.lat = a.lat0 + m*Math.cos(t)/110574;
+    a.lon = a.lon0 + m*Math.sin(t)/(111320*Math.cos(a.lat0*Math.PI/180));
+    a.alt = Math.max(0, a.alt0 + a.vr*dt);
+  });
+}
+
+/* ---- routes, looked up once per callsign and remembered ---- */
+var routeCache = {}, routeBusy = {}, routeRetry = {};
+function apt(code, city, lat, lon){ return {code:code, city:city||'', lat:+lat, lon:+lon}; }
+function routeFromAdsbdb(cs){
+  return timedFetch('https://api.adsbdb.com/v0/callsign/'+cs, null, 8000).then(function(r){
+    if (r.status === 404) return null;                 // callsign not in the database
+    if (!r.ok) throw new Error('adsbdb HTTP '+r.status);
+    return r.json().then(function(j){
+      var fr = j && j.response && j.response.flightroute, o = fr && fr.origin, d = fr && fr.destination;
+      if (!o || !d) return null;
+      return {o: apt(o.iata_code||o.icao_code, o.municipality||o.name, o.latitude, o.longitude),
+              d: apt(d.iata_code||d.icao_code, d.municipality||d.name, d.latitude, d.longitude)};
+    });
+  });
+}
+function routeFromAdsbLol(a){
+  return timedFetch('https://api.adsb.lol/api/0/routeset', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({planes:[{callsign:a.callsign, lat:a.lat, lng:a.lon}]})}, 8000)
+    .then(function(r){ if (!r.ok) throw new Error('routeset HTTP '+r.status); return r.json(); })
+    .then(function(j){
+      var it = j && j[0], ap = it && it._airports;
+      if (!ap || ap.length < 2) return null;
+      var o = ap[0], d = ap[ap.length-1];
+      return {o: apt(o.iata||o.icao, o.location||o.name, o.lat, o.lon),
+              d: apt(d.iata||d.icao, d.location||d.name, d.lat, d.lon)};
+    });
+}
+function wantRoute(a){
+  if (!LIVE || !a || !a.hasCs) return;
+  var cs = a.callsign;
+  if (cs in routeCache || routeBusy[cs] || (routeRetry[cs] && Date.now() < routeRetry[cs])) return;
+  routeBusy[cs] = 1;
+  routeFromAdsbdb(cs)
+    .then(function(r){ return r || routeFromAdsbLol(a); },
+          function(){ return routeFromAdsbLol(a); })
+    .then(function(r){ routeCache[cs] = r; },
+          function(e){ console.warn('[ROUTE] '+cs+': '+e); routeRetry[cs] = Date.now() + 60000; })
+    .then(function(){ delete routeBusy[cs]; });
+}
+function routeOf(a){
+  if (!LIVE) return (a.o && a.d) ? {o: apt(a.o, AP[a.o].n, AP[a.o].lat, AP[a.o].lon),
+                                    d: apt(a.d, AP[a.d].n, AP[a.d].lat, AP[a.d].lon)} : null;
+  return routeCache[a.callsign];   // undefined = still looking, null = no route known
+}
+
+function getAircraft(){ return LIVE ? live : fleet; }
 
 function step(dt){
   fleet.forEach(function(a,i){
@@ -342,7 +524,31 @@ function render(){
     setText('bannerText','Squawk '+alertCode+' - '+SQ[alertCode].text);
   }
   drawBlips(list,a,alertCode);
-  if (!a) return;
+
+  // footer: count, clock, and where the data is coming from
+  setText('count', list.length ? list.length+' aircraft in range' : 'Nothing in range');
+  setText('clock', new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
+  var mode, modeCol;
+  if (!LIVE){ mode='Demo data'; modeCol='var(--yellow)'; }
+  else if (!lastOk){ mode = pollFails ? 'No data yet, retrying' : 'Connecting'; modeCol='var(--muted)'; }
+  else if (Date.now()-lastOk > 45000){
+    mode='Data lost at '+new Date(lastOk).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+', retrying';
+    modeCol='var(--alert)';
+  } else { mode='Live from '+srcName; modeCol='var(--green)'; }
+  setText('mode', mode); $('mode').style.color = modeCol;
+
+  if (!a){
+    setText('airline', LIVE && !lastOk ? 'Tuning in' : 'Quiet skies');
+    setText('callsign', LIVE && !lastOk ? 'Fetching aircraft near Yateley' : 'No aircraft within 30 miles');
+    ['flightNo','acReg','badge'].forEach(function(id){ $(id).style.display='none'; });
+    setText('acType','');
+    $('route').style.display='none'; $('noRoute').style.display='none';
+    ['vDist','vSpd','vAlt','vHdg'].forEach(function(id){ setText(id,'-'); });
+    ['vDeg','vRate','vLook','etaVal'].forEach(function(id){ setText(id,''); });
+    ['bDist','bSpd','bAlt'].forEach(function(id){ $(id).style.width='0'; });
+    return;
+  }
+  wantRoute(a);
 
   var dKm=slantKm(a.lat,a.lon,a.alt), dMi=dKm/MI, mph=a.v*2.23694, ft=a.alt*3.28084;
   setText('airline', a.airline || a.callsign);
@@ -350,17 +556,21 @@ function render(){
   setText('flightNo', a.flightNo || '');
   $('flightNo').style.display = a.flightNo ? '' : 'none';
   setText('acType', a.type || 'Aircraft type unknown');
-  setText('acReg', a.reg || ''); $('acReg').style.display = a.reg ? '' : 'none';
+  $('acType').style.display='';
+  setText('acReg', a.reg || ''); $('acReg').style.display = (a.reg && a.reg!==a.callsign) ? '' : 'none';
   setText('badge', a.interest || ''); $('badge').style.display = a.interest ? 'inline-block' : 'none';
 
-  if (a.o && a.d){
+  var ro = routeOf(a);
+  if (ro){
     $('route').style.display='grid'; $('noRoute').style.display='none';
-    setText('oCode',a.o); setText('oCity',AP[a.o].n); setText('dCode',a.d); setText('dCity',AP[a.d].n);
-    var here={lat:a.lat,lon:a.lon}, from=hav(AP[a.o],here), to=hav(here,AP[a.d]);
-    var pr=Math.min(.96,Math.max(.04,from/(from+to)))*100;
+    setText('oCode',ro.o.code); setText('oCity',ro.o.city); setText('dCode',ro.d.code); setText('dCity',ro.d.city);
+    var here={lat:a.lat,lon:a.lon}, from=hav(ro.o,here), to=hav(here,ro.d);
+    var pr = (from+to>0) ? from/(from+to) : .5; if (!isFinite(pr)) pr=.5;
+    pr = Math.min(.96,Math.max(.04,pr))*100;
     $('done').style.width=pr+'%'; $('lanePlane').style.left=pr+'%';
   } else {
     $('route').style.display='none'; $('noRoute').style.display='flex';
+    setText('noRoute', (ro===undefined && a.hasCs) ? 'Looking up the route...' : 'No route on record for this one.');
   }
 
   setText('vDist',dMi.toFixed(0)); setText('vSpd',fmt(mph)); setText('vAlt',fmt(ft));
@@ -382,8 +592,6 @@ function render(){
   $('bAlt').style.width=Math.min(100,ft/40000*100)+'%';
   $('hdgArrow').setAttribute('transform','rotate('+a.track+')');
 
-  setText('count', list.length+' aircraft in range');
-  setText('clock', new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
 }
 
 /* ---- demo controls ---- */
@@ -404,9 +612,14 @@ function fit(){
 }
 window.addEventListener('resize',fit); fit();
 
-for (var i=0;i<20;i++) step(0.25);
-render();
-setInterval(function(){ step(0.25); render(); },250);
+if (LIVE){
+  render(); poll();
+  setInterval(function(){ reckon(); render(); },250);
+} else {
+  for (var i=0;i<20;i++) step(0.25);
+  render();
+  setInterval(function(){ step(0.25); render(); },250);
+}
 })();
 </script>
 </body>
