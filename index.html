@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>
+// Kiosk (Echo): lay the page out at exactly 960px wide so Android maps it 1:1
+// onto the 960x480 screen, whatever Android's zoom (density) setting is.
+if (/[?&]kiosk/.test(location.search) ||
+    (/Android/i.test(navigator.userAgent) && !/[?&]demo/.test(location.search))) {
+  document.querySelector('meta[name=viewport]').setAttribute('content','width=960, user-scalable=no');
+}
+</script>
 <title>Flight Tracker - Echo Show 5 preview</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
