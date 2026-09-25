@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flight Tracker - Echo Show 5 preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500&display=swap">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --page-bg:#e9edf2; --page-fg:#16202b; --btn-bg:#ffffff; --btn-line:#b9c3d0;
+  --bg:#05080d; --panel:#0b131c; --line:#1b2a3b; --white:#f4f8fc;
+  --cyan:#00e5ff; --yellow:#ffd60a; --green:#33ff66; --muted:#7a8ea4;
+  --alert:#ff8a00;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --page-bg:#0a0e13; --page-fg:#dbe4ee; --btn-bg:#141c26; --btn-line:#2b3b4e; }
+}
+:root[data-theme="dark"]{ --page-bg:#0a0e13; --page-fg:#dbe4ee; --btn-bg:#141c26; --btn-line:#2b3b4e; }
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+body{margin:0;height:100%;background:var(--page-bg);color:var(--page-fg);
+  font-family:"Barlow",system-ui,"Segoe UI",Arial,sans-serif;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;overflow-x:hidden}
+
+#holder{position:relative;flex:none}
+#stage{position:absolute;left:0;top:0;width:960px;height:480px;transform-origin:top left;
+  background:var(--bg);color:var(--white);border-radius:18px;overflow:hidden;
+  display:grid;grid-template-columns:456px 1fr;grid-template-rows:1fr 28px;gap:8px 14px;
+  padding:12px 16px 4px 10px;box-sizing:border-box;
+  box-shadow:0 0 0 2px var(--line) inset}
+#stage.alert{box-shadow:0 0 0 5px var(--alert) inset;animation:edge 1s steps(1) infinite}
+@keyframes edge{50%{box-shadow:0 0 0 5px transparent inset}}
+
+#radarPanel{display:flex;align-items:center;justify-content:center;min-height:0}
+#radar{width:100%;height:100%}
+.rl{font:500 12px "Barlow",sans-serif;fill:#4d6379}
+.cd{font:600 15px "Barlow Condensed",sans-serif;fill:#6f8499}
+.sweep{transform-origin:230px 230px;animation:spin 6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.pulse{animation:ring 1.6s ease-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes ring{0%{opacity:.9;transform:scale(.6)}100%{opacity:0;transform:scale(1.5)}}
+.blipLabel{font:600 17px "Barlow Condensed",sans-serif;fill:#fff;paint-order:stroke;stroke:#05080d;stroke-width:4px;stroke-linejoin:round}
+
+#info{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0}
+#banner{display:none;align-items:center;gap:10px;background:var(--alert);color:#0a0a0a;border-radius:10px;
+  padding:4px 14px;font:700 20px "Barlow Condensed",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;animation:flip 1s steps(1) infinite}
+#stage.alert #banner{display:flex}
+@keyframes flip{50%{background:transparent;color:var(--alert);box-shadow:0 0 0 2px var(--alert) inset}}
+
+#ident{flex:none}
+#airline{font:700 38px/1 "Barlow Condensed",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sub{display:flex;align-items:center;gap:10px;margin-top:5px;font:500 20px "Barlow Condensed",sans-serif;color:var(--muted)}
+.chip{background:var(--panel);border:1.5px solid var(--line);border-radius:7px;padding:0 9px;color:var(--white);font-weight:600}
+
+#route{flex:none;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px;
+  background:var(--panel);border-radius:12px;padding:6px 16px}
+.end .code{font:700 48px/1 "Barlow Condensed",sans-serif}
+.end .city{font:500 16px "Barlow",sans-serif;color:var(--muted);margin-top:2px;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.end.right{text-align:right}.end.right .city{margin-left:auto}
+.lane{position:relative;height:26px}
+.lane .rail{position:absolute;left:0;right:0;top:12px;height:3px;border-radius:2px;background:var(--line)}
+.lane .done{position:absolute;left:0;top:12px;height:3px;border-radius:2px;background:var(--cyan)}
+.lane svg{position:absolute;top:0;width:26px;height:26px;margin-left:-13px}
+#noRoute{display:none;background:var(--panel);border-radius:12px;padding:16px;font:500 20px "Barlow Condensed",sans-serif;color:var(--muted);align-items:center}
+
+#stats{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:10px}
+.tile{position:relative;background:var(--panel);border-radius:12px;border-left:5px solid var(--c);padding:6px 14px 10px;
+  display:flex;flex-direction:column;justify-content:space-between;min-height:0}
+.tile .lbl{font:500 15px "Barlow",sans-serif;color:var(--muted);display:flex;justify-content:space-between;gap:8px;white-space:nowrap}
+.tile .lbl .aux{color:var(--c);font-weight:500}
+.tile .val{font:700 44px/1 "Barlow Condensed",sans-serif;color:var(--c)}
+.tile .val small{font:500 20px "Barlow Condensed",sans-serif;margin-left:5px;color:var(--muted)}
+.tile .bar{height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+.tile .bar i{display:block;height:100%;width:0;background:var(--c);transition:width .25s linear}
+.tile.d{--c:var(--yellow)}.tile.s{--c:var(--green)}.tile.a{--c:var(--cyan)}.tile.h{--c:var(--white)}
+.tile.h svg{position:absolute;right:12px;top:12px;width:44px;height:44px}
+#stage.alert .tile{--c:var(--alert)}
+#stage.alert .lane .done{background:var(--alert)}
+#stage.alert .flash{animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:.25}}
+
+#acLine{display:flex;align-items:center;gap:8px;margin-top:4px;min-height:24px;font:500 17px "Barlow",sans-serif;color:var(--muted)}
+#acLine .chip{font:600 16px "Barlow Condensed",sans-serif}
+#badge{display:none;margin-left:auto;background:var(--yellow);color:#101010;border-radius:7px;padding:0 10px;font:700 18px "Barlow Condensed",sans-serif}
+#stage.alert #badge{display:none !important}
+.etaVal{font:600 22px "Barlow Condensed",sans-serif;fill:var(--cyan)}
+#stage.alert .etaVal{fill:var(--alert)}
+#foot{grid-column:1 / span 2;display:flex;align-items:center;justify-content:space-between;
+  font:500 15px "Barlow",sans-serif;color:var(--muted);padding:0 6px}
+#mode{color:var(--yellow)}
+
+#controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:0 12px}
+#controls button{font:500 15px "Barlow",system-ui,sans-serif;background:var(--btn-bg);color:var(--page-fg);
+  border:1px solid var(--btn-line);border-radius:9px;padding:9px 14px;cursor:pointer}
+#controls button:focus-visible{outline:3px solid #2f7de1;outline-offset:2px}
+#note{font:400 13px "Barlow",system-ui,sans-serif;opacity:.7;text-align:center;padding:0 16px;max-width:640px}
+</style>
+</head>
+<body>
+
+<div id="holder">
+ <div id="stage">
+  <section id="radarPanel"><svg id="radar" viewBox="0 0 460 460" aria-label="Radar view of aircraft around home"></svg></section>
+
+  <section id="info">
+    <div id="banner"><span id="bannerText"></span></div>
+    <header id="ident">
+      <div id="airline" class="flash">-</div>
+      <div id="sub"><span id="callsign"></span><span id="flightNo" class="chip"></span><span id="badge"></span></div>
+      <div id="acLine"><span id="acType"></span><span id="acReg" class="chip"></span></div>
+    </header>
+    <div id="route" class="flash">
+      <div class="end"><div class="code" id="oCode"></div><div class="city" id="oCity"></div></div>
+      <div class="lane"><div class="rail"></div><div class="done" id="done"></div>
+        <svg id="lanePlane" viewBox="-13 -13 26 26"><g transform="rotate(90)"><path id="lanePath" fill="#f4f8fc"/></g></svg></div>
+      <div class="end right"><div class="code" id="dCode"></div><div class="city" id="dCity"></div></div>
+    </div>
+    <div id="noRoute">No route on record for this one.</div>
+    <div id="stats" class="flash">
+      <div class="tile d"><div class="lbl"><span>Distance</span><span class="aux" id="vLook"></span></div><div class="val"><span id="vDist">-</span><small>mi</small></div><div class="bar"><i id="bDist"></i></div></div>
+      <div class="tile s"><div class="lbl">Ground speed</div><div class="val"><span id="vSpd">-</span><small>mph</small></div><div class="bar"><i id="bSpd"></i></div></div>
+      <div class="tile a"><div class="lbl"><span>Altitude</span><span class="aux" id="vRate"></span></div><div class="val"><span id="vAlt">-</span><small>ft</small></div><div class="bar"><i id="bAlt"></i></div></div>
+      <div class="tile h"><div class="lbl">Heading</div><div class="val"><span id="vHdg">-</span><small id="vDeg"></small></div>
+        <svg viewBox="-22 -22 44 44"><circle r="20" fill="none" stroke="#1b2a3b" stroke-width="2"/><g id="hdgArrow"><path d="M0,-17 L7,8 L0,4 L-7,8 Z" fill="#f4f8fc"/></g></svg>
+        <div class="bar"><i style="width:0"></i></div></div>
+    </div>
+  </section>
+
+  <footer id="foot"><span id="count"></span><span id="mode">Demo data</span><span id="clock"></span></footer>
+ </div>
+</div>
+
+
+
+<script>
+(function(){
+"use strict";
+var $ = function(id){return document.getElementById(id)};
+var REF = {lat:51.332, lon:-0.834};
+var KIOSK = true;
+if (KIOSK){ $('controls').style.display='none'; $('note').style.display='none'; }
+
+var MI = 1.609344, MULT = 6, CX = 230, CY = 230, R = 200, RANGE_KM = 50, K = R / RANGE_KM;
+var PLANE = "M0,-12 L2.2,-4.5 L11.5,0.8 L11.5,3.6 L2.4,1.6 L1.6,8.2 L5.2,10.4 L5.2,12 L0,10.8 L-5.2,12 L-5.2,10.4 L-1.6,8.2 L-2.4,1.6 L-11.5,3.6 L-11.5,0.8 L-2.2,-4.5 Z";
+$('lanePath').setAttribute('d', PLANE);
+
+var SQ = {
+  '7500': {sev:0, color:'#ff2d2d', text:'Unlawful interference'},
+  '7700': {sev:1, color:'#ff8a00', text:'General emergency'}
+};
+var AP = {
+  LHR:{n:'London',lat:51.4706,lon:-0.4619}, JFK:{n:'New York',lat:40.6398,lon:-73.7789},
+  PMI:{n:'Palma',lat:39.5517,lon:2.7388}, MAN:{n:'Manchester',lat:53.3537,lon:-2.2750},
+  BOS:{n:'Boston',lat:42.3656,lon:-71.0096}, LCY:{n:'London City',lat:51.5053,lon:0.0553},
+  GLA:{n:'Glasgow',lat:55.8719,lon:-4.4331},
+  DXB:{n:'Dubai',lat:25.2532,lon:55.3657}
+};
+var START = [
+  {icao:'400a01',callsign:'BAW117',airline:'British Airways',flightNo:'BA117',o:'LHR',d:'JFK',type:'Boeing 777-300ER',reg:'G-STBA',lat:51.40,lon:-0.95,alt:3400,v:190,vr:11.2,track:265,squawk:'2201'},
+  {icao:'400a02',callsign:'EZY82PL',airline:'easyJet',flightNo:'U282PL',o:'PMI',d:'MAN',type:'Airbus A320neo',reg:'G-UZHE',lat:50.95,lon:-1.10,alt:10700,v:230,vr:0,track:340,squawk:'2734'},
+  {icao:'400a03',callsign:'VIR3N',airline:'Virgin Atlantic',flightNo:'VS3N',o:'LHR',d:'BOS',type:'Airbus A350-1000',reg:'G-VLUX',lat:51.62,lon:-0.30,alt:5200,v:210,vr:8.1,track:250,squawk:'6041'},
+  {icao:'400a04',callsign:'GJJAN',airline:null,flightNo:null,o:null,d:null,type:'Piper PA-28 Cherokee',reg:'G-JJAN',lat:51.25,lon:-0.70,alt:730,v:45,vr:0,track:120,squawk:'7000'},
+  {icao:'400a05',callsign:'CFE736',airline:'BA CityFlyer',flightNo:'CJ736',o:'LCY',d:'GLA',type:'Embraer E190',reg:'G-LCYU',lat:51.10,lon:-0.40,alt:7200,v:200,vr:-6.5,track:320,squawk:'3410'},
+  {icao:'400a06',callsign:'UAE9',airline:'Emirates',flightNo:'EK9',o:'DXB',d:'LHR',type:'Airbus A380-800',reg:'A6-EOB',lat:51.47,lon:-1.30,alt:2100,v:105,vr:-5,track:90,squawk:'4127'},
+  {icao:'400a07',callsign:'RRR6010',airline:'Royal Air Force',flightNo:null,o:null,d:null,type:'Airbus Voyager KC3',reg:'ZZ330',lat:51.15,lon:-1.25,alt:6500,v:220,vr:0,track:60,squawk:'7001'}
+];
+var fleet = [], trails = {}, lockId = null, ticks = 0;
+function resetFleet(){ fleet = START.map(function(a){return Object.assign({},a)}); trails = {}; lockId = null; }
+resetFleet();
+
+/* ---- maths (same idea as code.py) ---- */
+function slantKm(lat,lon,altM){
+  var la=(lat-REF.lat)*110.574, lo=(lon-REF.lon)*111.320*Math.cos((lat+REF.lat)/2*Math.PI/180), al=(altM||0)/1000;
+  return Math.sqrt(la*la+lo*lo+al*al);
+}
+function groundKm(lat,lon){ return slantKm(lat,lon,0); }
+function hav(a,b){
+  var r=Math.PI/180, dLa=(b.lat-a.lat)*r, dLo=(b.lon-a.lon)*r;
+  var h=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLo/2)*Math.sin(dLo/2);
+  return 6371*2*Math.asin(Math.sqrt(h));
+}
+var CARD=['N','NE','E','SE','S','SW','W','NW'];
+function cardinal(t){ return CARD[Math.floor(((t+22.5)%360)/45)%8]; }
+function proj(lat,lon){
+  var dx=(lon-REF.lon)*111.32*Math.cos(REF.lat*Math.PI/180), dy=(lat-REF.lat)*110.574;
+  return [CX+dx*K, CY-dy*K];
+}
+function fmt(n){ return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+
+/* ---- interesting aircraft (works from type + callsign, so it will work with live data too) ---- */
+var SPOT_KM = 25;
+var MIL_PREFIX = /^(RRR|RCH|CNV|RFR|FAF|GAF|IAM|NATO)/;
+function interestOf(a){
+  var t=(a.type||'').toLowerCase(), c=(a.callsign||'').toUpperCase();
+  if (MIL_PREFIX.test(c) || /hawk|typhoon|voyager|a400m|c-17|hercules|atlas|tucano|chinook|apache|puma|merlin|sentinel|poseidon|rivet/.test(t)) return 'Military';
+  if (/a380/.test(t)) return 'Superjumbo';
+  if (/747/.test(t)) return 'Jumbo jet';
+  if (/an-124|an-225|antonov|beluga|dreamlifter/.test(t)) return 'Giant freighter';
+  if (/helicopter|ec135|ec145|as350|h145|h135|aw109|aw139|aw169|bell |r44|r22/.test(t) || a.category===8) return 'Helicopter';
+  return null;
+}
+
+/* ---- time to closest approach, from position + speed + heading ---- */
+function approach(a){
+  var kx=111.320*Math.cos(REF.lat*Math.PI/180), ky=110.574;
+  var px=(a.lon-REF.lon)*kx, py=(a.lat-REF.lat)*ky, t=a.track*Math.PI/180;
+  var vx=a.v/1000*Math.sin(t), vy=a.v/1000*Math.cos(t), vv=vx*vx+vy*vy;
+  if (vv<1e-9) return null;
+  var ts=-(px*vx+py*vy)/vv;
+  if (ts<=0) return {away:true};
+  return {secs:ts/MULT, km:Math.hypot(px+vx*ts, py+vy*ts)};
+}
+
+/* ---- data source: swap this for live OpenSky data later ---- */
+function getAircraft(){ return fleet; }
+
+function step(dt){
+  fleet.forEach(function(a,i){
+    var t=a.track*Math.PI/180, m=a.v*MULT*dt;
+    a.lat += m*Math.cos(t)/110574;
+    a.lon += m*Math.sin(t)/(111320*Math.cos(a.lat*Math.PI/180));
+    a.alt = Math.min(12000, Math.max(150, a.alt + (a.vr||0)*MULT*dt));
+    if (groundKm(a.lat,a.lon) > 55){
+      var keepSq = (a.squawk in SQ) ? a.squawk : START[i].squawk;
+      fleet[i] = Object.assign({},START[i],{squawk:keepSq}); delete trails[a.icao];
+    }
+  });
+  ticks++;
+  if (ticks % 4 === 0){
+    fleet.forEach(function(a){
+      var p=proj(a.lat,a.lon), tr=trails[a.icao]||(trails[a.icao]=[]);
+      tr.push(p); if(tr.length>14) tr.shift();
+    });
+  }
+}
+
+/* ---- pick who to show: emergency lock beats closest ---- */
+function pickFocus(list){
+  var em=list.filter(function(a){return SQ[a.squawk]});
+  if (lockId){
+    var l=em.filter(function(a){return a.icao===lockId})[0];
+    if (l) return {a:l,alert:l.squawk};
+    lockId=null;
+  }
+  if (em.length){
+    em.sort(function(x,y){return SQ[x.squawk].sev-SQ[y.squawk].sev || slantKm(x.lat,x.lon,x.alt)-slantKm(y.lat,y.lon,y.alt)});
+    lockId=em[0].icao; return {a:em[0],alert:em[0].squawk};
+  }
+  var ints=list.filter(function(a){return a.interest && groundKm(a.lat,a.lon)<SPOT_KM});
+  if (ints.length){
+    ints.sort(function(x,y){return slantKm(x.lat,x.lon,x.alt)-slantKm(y.lat,y.lon,y.alt)});
+    return {a:ints[0],alert:null};
+  }
+  var best=null,bd=1e9;
+  list.forEach(function(a){var d=slantKm(a.lat,a.lon,a.alt); if(d<bd){bd=d;best=a}});
+  return {a:best,alert:null};
+}
+
+/* ---- radar ---- */
+(function buildRadar(){
+  var s='<circle cx="'+CX+'" cy="'+CY+'" r="'+(R+6)+'" fill="#070d14" stroke="#1b2a3b" stroke-width="2"/>';
+  [10,20,30].forEach(function(mi){
+    var r=mi*MI*K;
+    s+='<circle cx="'+CX+'" cy="'+CY+'" r="'+r+'" fill="none" stroke="#16283a" stroke-width="1.5"/>';
+    s+='<text class="rl" x="'+(CX+5)+'" y="'+(CY-r+14)+'">'+mi+' mi</text>';
+  });
+  s+='<line x1="'+CX+'" y1="'+(CY-R)+'" x2="'+CX+'" y2="'+(CY+R)+'" stroke="#122130" stroke-width="1.5"/>';
+  s+='<line x1="'+(CX-R)+'" y1="'+CY+'" x2="'+(CX+R)+'" y2="'+CY+'" stroke="#122130" stroke-width="1.5"/>';
+  s+='<text class="cd" x="'+CX+'" y="16" text-anchor="middle">N</text><text class="cd" x="'+CX+'" y="454" text-anchor="middle">S</text>';
+  s+='<text class="cd" x="452" y="'+(CY+5)+'" text-anchor="middle">E</text><text class="cd" x="8" y="'+(CY+5)+'" text-anchor="middle">W</text>';
+  s+='<g class="sweep"><path d="M'+CX+','+CY+' L136.1,53.4 A200,200 0 0 1 '+CX+','+(CY-R)+' Z" fill="rgba(0,229,255,.07)"/>'+
+     '<line x1="'+CX+'" y1="'+CY+'" x2="'+CX+'" y2="'+(CY-R)+'" stroke="rgba(0,229,255,.45)" stroke-width="1.5"/></g>';
+  s+='<circle cx="'+CX+'" cy="'+CY+'" r="4" fill="#ffd60a"/>';
+  s+='<text class="rl" x="'+(CX+9)+'" y="'+(CY+18)+'" style="fill:#ffd60a">Yateley</text>';
+  s+='<text class="rl" x="8" y="418">Closest approach</text><text class="etaVal" id="etaVal" x="8" y="444"></text>';
+  s+='<g id="blips"></g>';
+  $('radar').innerHTML=s;
+})();
+
+function drawBlips(list,focus,alertCode){
+  var col = alertCode ? SQ[alertCode].color : (focus && focus.interest ? '#ffd60a' : '#00e5ff'), out='';
+  list.forEach(function(a){
+    if (a===focus) return;
+    var p=proj(a.lat,a.lon);
+    if (Math.hypot(p[0]-CX,p[1]-CY) > R) return;
+    if (a.interest){
+      out+='<g transform="translate('+p[0].toFixed(1)+','+p[1].toFixed(1)+') rotate('+a.track+')"><path d="'+PLANE+'" transform="scale(.85)" fill="#ffd60a"/></g>';
+      out+='<text class="blipLabel" style="font-size:14px" x="'+(p[0]+11).toFixed(1)+'" y="'+(p[1]-8).toFixed(1)+'">'+a.callsign+'</text>';
+    } else {
+      out+='<g transform="translate('+p[0].toFixed(1)+','+p[1].toFixed(1)+') rotate('+a.track+')"><path d="'+PLANE+'" transform="scale(.6)" fill="#5d7690"/></g>';
+    }
+  });
+  if (focus){
+    var p=proj(focus.lat,focus.lon), tr=trails[focus.icao]||[];
+    if (tr.length>1) out+='<polyline points="'+tr.map(function(q){return q[0].toFixed(1)+','+q[1].toFixed(1)}).join(' ')+'" fill="none" stroke="'+col+'" stroke-opacity=".55" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
+    out+='<circle class="pulse" cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="24" fill="none" stroke="'+col+'" stroke-width="2.5"/>';
+    out+='<g transform="translate('+p[0].toFixed(1)+','+p[1].toFixed(1)+') rotate('+focus.track+')"><path d="'+PLANE+'" transform="scale(1.35)" fill="'+((alertCode||focus.interest)?col:'#ffffff')+'"/></g>';
+    var lx = Math.min(Math.max(p[0]+20,10),CX+R-70), ly=Math.min(Math.max(p[1]-16,24),CY+R-10);
+    out+='<text class="blipLabel" x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'">'+focus.callsign+'</text>';
+  }
+  $('blips').innerHTML=out;
+}
+
+/* ---- fill the info panel ---- */
+var lastText={};
+function setText(id,t){ if(lastText[id]!==t){ lastText[id]=t; $(id).textContent=t; } }
+
+function render(){
+  var list=getAircraft(); list.forEach(function(x){x.interest=interestOf(x);});
+  var pf=pickFocus(list), a=pf.a, alertCode=pf.alert;
+  var stage=$('stage');
+  stage.classList.toggle('alert',!!alertCode);
+  if (alertCode){
+    stage.style.setProperty('--alert',SQ[alertCode].color);
+    setText('bannerText','Squawk '+alertCode+' - '+SQ[alertCode].text);
+  }
+  drawBlips(list,a,alertCode);
+  if (!a) return;
+
+  var dKm=slantKm(a.lat,a.lon,a.alt), dMi=dKm/MI, mph=a.v*2.23694, ft=a.alt*3.28084;
+  setText('airline', a.airline || a.callsign);
+  setText('callsign', a.airline ? a.callsign : 'Private / GA');
+  setText('flightNo', a.flightNo || '');
+  $('flightNo').style.display = a.flightNo ? '' : 'none';
+  setText('acType', a.type || 'Aircraft type unknown');
+  setText('acReg', a.reg || ''); $('acReg').style.display = a.reg ? '' : 'none';
+  setText('badge', a.interest || ''); $('badge').style.display = a.interest ? 'inline-block' : 'none';
+
+  if (a.o && a.d){
+    $('route').style.display='grid'; $('noRoute').style.display='none';
+    setText('oCode',a.o); setText('oCity',AP[a.o].n); setText('dCode',a.d); setText('dCity',AP[a.d].n);
+    var here={lat:a.lat,lon:a.lon}, from=hav(AP[a.o],here), to=hav(here,AP[a.d]);
+    var pr=Math.min(.96,Math.max(.04,from/(from+to)))*100;
+    $('done').style.width=pr+'%'; $('lanePlane').style.left=pr+'%';
+  } else {
+    $('route').style.display='none'; $('noRoute').style.display='flex';
+  }
+
+  setText('vDist',dMi.toFixed(0)); setText('vSpd',fmt(mph)); setText('vAlt',fmt(ft));
+  setText('vHdg',cardinal(a.track)); setText('vDeg',Math.round(a.track)+'\u00b0');
+  var fpm=(a.vr||0)*196.85, afpm=Math.abs(fpm);
+  setText('vRate', afpm<300 ? 'Level' : (fpm>0?'\u25b2 ':'\u25bc ')+fmt(Math.round(afpm/100)*100)+' ft/min');
+  var bx=(a.lon-REF.lon)*Math.cos(REF.lat*Math.PI/180), by=(a.lat-REF.lat);
+  var brg=(Math.atan2(bx,by)*180/Math.PI+360)%360, el=Math.atan2(a.alt,groundKm(a.lat,a.lon)*1000)*180/Math.PI;
+  setText('vLook', el<4 ? 'Look '+cardinal(brg)+', low' : 'Look '+cardinal(brg)+', '+Math.round(el)+'\u00b0 up');
+  var ap=approach(a), etaTxt;
+  if (!ap || ap.away) etaTxt='Moving away';
+  else {
+    var sc=ap.secs, when = sc<8 ? 'Passing now' : (sc<90 ? Math.round(sc)+' sec' : Math.round(sc/60)+' min');
+    etaTxt = when+', '+(ap.km<1.6 ? 'right overhead' : Math.round(ap.km/MI)+' mi away');
+  }
+  setText('etaVal',etaTxt);
+  $('bDist').style.width=Math.max(4,(1-dKm/RANGE_KM)*100)+'%';
+  $('bSpd').style.width=Math.min(100,a.v/300*100)+'%';
+  $('bAlt').style.width=Math.min(100,ft/40000*100)+'%';
+  $('hdgArrow').setAttribute('transform','rotate('+a.track+')');
+
+  setText('count', list.length+' aircraft in range');
+  setText('clock', new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
+}
+
+/* ---- demo controls ---- */
+function setSquawk(icao,code){ fleet.forEach(function(a){ if(a.icao===icao) a.squawk=code; }); }
+$('btn7700').onclick=function(){ setSquawk('400a02','7700'); };
+$('btn7500').onclick=function(){ setSquawk('400a05','7500'); };
+$('btnClear').onclick=function(){ fleet.forEach(function(a,i){ a.squawk=START[i].squawk; }); lockId=null; };
+$('btnReset').onclick=function(){ resetFleet(); };
+
+/* ---- scale the 960x480 screen to fit whatever it's shown on ---- */
+function fit(){
+  var cH = KIOSK ? 0 : $('controls').offsetHeight + $('note').offsetHeight + 40;
+  var s = Math.min((window.innerWidth-20)/960, (window.innerHeight-cH-20)/480);
+  if (s<=0 || !isFinite(s)) s=1;
+  $('stage').style.transform='scale('+s+')';
+  $('holder').style.width=(960*s)+'px'; $('holder').style.height=(480*s)+'px';
+}
+window.addEventListener('resize',fit); fit();
+
+for (var i=0;i<20;i++) step(0.25);
+render();
+setInterval(function(){ step(0.25); render(); },250);
+})();
+</script>
+</body>
+</html>
